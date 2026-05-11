@@ -68,6 +68,7 @@ function todayInputValue() {
 // ============================================================
 export default function App() {
   const [user, setUser] = useState(null); // {role:'resident'|'management', apartment}
+  const [pendingAuth, setPendingAuth] = useState(null); // same shape, awaiting PIN confirmation
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState('list'); // list | new | detail
@@ -99,8 +100,18 @@ export default function App() {
     setSelected(null);
   }
 
-  if (!user) {
-    return <LoginScreen onLogin={setUser} error={error} />;
+  if (!user && !pendingAuth) {
+    return <LoginScreen onLogin={setPendingAuth} error={error} />;
+  }
+
+  if (!user && pendingAuth) {
+    return (
+      <PinScreen
+        pendingAuth={pendingAuth}
+        onSuccess={() => { setUser(pendingAuth); setPendingAuth(null); }}
+        onCancel={() => setPendingAuth(null)}
+      />
+    );
   }
 
   if (view === 'new' && user.role === 'resident') {
@@ -398,6 +409,172 @@ function LoginScreen({ onLogin, error }) {
           <span style={{ opacity: 0.7 }}>800 m from the Mediterranean</span>
         </p>
       </div>
+    </Shell>
+  );
+}
+
+// ============================================================
+// PIN SCREEN
+// ============================================================
+function PinScreen({ pendingAuth, onSuccess, onCancel }) {
+  const [pin, setPin] = useState('');
+  const [error, setError] = useState(false);
+  const [shaking, setShaking] = useState(false);
+  const inputRef = useRef(null);
+
+  const expectedPin = pendingAuth.role === 'management'
+    ? '0000'
+    : '0' + String(pendingAuth.apartment);
+
+  const isManagement = pendingAuth.role === 'management';
+  const title = isManagement ? 'Management' : `Apartment ${pendingAuth.apartment}`;
+  const eyebrow = isManagement ? 'Building team' : 'Resident';
+
+  useEffect(() => {
+    // tiny delay so mobile shows the keyboard
+    const t = setTimeout(() => inputRef.current?.focus(), 120);
+    return () => clearTimeout(t);
+  }, []);
+
+  function handleChange(e) {
+    const val = e.target.value.replace(/\D/g, '').slice(0, 4);
+    setPin(val);
+    setError(false);
+    if (val.length === 4) {
+      if (val === expectedPin) {
+        setTimeout(() => onSuccess(), 180);
+      } else {
+        setError(true);
+        setShaking(true);
+        setTimeout(() => {
+          setShaking(false);
+          setPin('');
+          inputRef.current?.focus();
+        }, 550);
+      }
+    }
+  }
+
+  return (
+    <Shell>
+      <header style={{
+        padding: '20px 20px 16px',
+        display: 'flex', alignItems: 'center', gap: 12,
+      }}>
+        <button
+          onClick={onCancel}
+          aria-label="Back"
+          style={{
+            width: 36, height: 36, borderRadius: 10, border: '1px solid var(--line)',
+            background: 'transparent', cursor: 'pointer', display: 'flex',
+            alignItems: 'center', justifyContent: 'center', color: 'var(--ink)',
+          }}
+        >
+          <ChevronLeft size={18} strokeWidth={2} />
+        </button>
+        <div style={{
+          fontSize: 11, color: 'var(--ink-muted)', textTransform: 'uppercase',
+          letterSpacing: '0.08em', fontWeight: 600,
+        }}>
+          {BUILDING_NAME}
+        </div>
+      </header>
+
+      <main style={{
+        flex: 1, display: 'flex', flexDirection: 'column',
+        justifyContent: 'center', alignItems: 'center',
+        padding: '0 24px 60px', textAlign: 'center',
+      }}>
+        <div style={{
+          width: 64, height: 64, borderRadius: 16,
+          background: 'var(--ink)', color: 'var(--paper)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          marginBottom: 24,
+        }}>
+          {isManagement
+            ? <Wrench size={28} strokeWidth={1.6} />
+            : <Home size={28} strokeWidth={1.6} />}
+        </div>
+
+        <div style={{
+          fontSize: 11, color: 'var(--ink-muted)', textTransform: 'uppercase',
+          letterSpacing: '0.16em', fontWeight: 600, marginBottom: 6,
+        }}>
+          {eyebrow}
+        </div>
+        <h1 style={{
+          fontFamily: 'var(--display)', fontSize: 32, fontWeight: 500,
+          color: 'var(--ink)', margin: '0 0 6px', letterSpacing: '-0.02em',
+        }}>
+          {title}
+        </h1>
+        <p style={{ fontSize: 14, color: 'var(--ink-muted)', margin: '0 0 36px' }}>
+          Enter your 4-digit PIN
+        </p>
+
+        <div
+          className={shaking ? 'pin-shake' : ''}
+          onClick={() => inputRef.current?.focus()}
+          style={{
+            display: 'flex', gap: 12, marginBottom: 24,
+            position: 'relative', cursor: 'text',
+          }}
+        >
+          {[0, 1, 2, 3].map(i => {
+            const filled = i < pin.length;
+            const active = i === pin.length && !error;
+            return (
+              <div
+                key={i}
+                style={{
+                  width: 56, height: 68, borderRadius: 12,
+                  border: `1.5px solid ${
+                    error ? '#9B2C2C' :
+                    active ? 'var(--ink)' :
+                    filled ? 'var(--ink)' :
+                    'var(--line)'
+                  }`,
+                  background: 'var(--surface)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 28, fontWeight: 600,
+                  color: error ? '#9B2C2C' : 'var(--ink)',
+                  transition: 'border-color 0.15s',
+                }}
+              >
+                {filled ? '•' : ''}
+              </div>
+            );
+          })}
+          <input
+            ref={inputRef}
+            type="tel"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            value={pin}
+            onChange={handleChange}
+            maxLength={4}
+            autoComplete="one-time-code"
+            style={{
+              position: 'absolute', inset: 0,
+              opacity: 0, border: 'none', outline: 'none',
+              background: 'transparent', fontSize: 16,
+              caretColor: 'transparent',
+            }}
+            aria-label="PIN code"
+          />
+        </div>
+
+        <div style={{
+          fontSize: 13,
+          color: error ? '#9B2C2C' : 'var(--ink-muted)',
+          opacity: error ? 1 : 0.7,
+          fontWeight: error ? 500 : 400,
+          minHeight: 20,
+          transition: 'all 0.15s',
+        }}>
+          {error ? 'Incorrect PIN, try again' : 'PIN was provided by management'}
+        </div>
+      </main>
     </Shell>
   );
 }
@@ -1243,6 +1420,12 @@ function Shell({ children }) {
           to { transform: rotate(360deg); }
         }
         .spin { animation: spin 1s linear infinite; }
+        @keyframes pin-shake {
+          0%, 100% { transform: translateX(0); }
+          20%, 60% { transform: translateX(-8px); }
+          40%, 80% { transform: translateX(8px); }
+        }
+        .pin-shake { animation: pin-shake 0.45s; }
       `}</style>
       <div className="app-root">
         <div className="app-container">
